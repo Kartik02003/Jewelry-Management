@@ -1,13 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Hammer, ChevronRight, Gem, Layers, Sparkles } from 'lucide-react';
+import { Users, Hammer, ChevronRight, Gem, Lock, Settings } from 'lucide-react';
 import { clientsService } from '../services/clientsService';
 import { craftsmenService } from '../services/craftsmenService';
+import { useAuth } from '../context/AuthContext';
+import { SecuritySettingsModal } from '../components/auth/SecuritySettingsModal';
 
 export const Home: React.FC = () => {
   const navigate = useNavigate();
+  const { lockNow } = useAuth();
   const [clientCount, setClientCount] = useState<number | null>(null);
   const [craftsmanCount, setCraftsmanCount] = useState<number | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   useEffect(() => {
     const loadCounts = async () => {
@@ -39,6 +43,27 @@ export const Home: React.FC = () => {
             </h1>
             <p className="text-xs font-medium text-slate-500">Orders & Craftsman Hub</p>
           </div>
+        </div>
+
+        {/* Quick Lock & Security Settings */}
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            className="p-2 text-slate-500 hover:text-slate-800 rounded-xl hover:bg-slate-100 transition-colors"
+            title="Security & Lock Settings"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={lockNow}
+            className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all active:scale-95"
+            title="Lock screen now"
+          >
+            <Lock className="w-3.5 h-3.5 text-primary-300" />
+            <span>Lock</span>
+          </button>
         </div>
       </div>
 
@@ -92,6 +117,13 @@ export const Home: React.FC = () => {
           </p>
         </button>
       </div>
+
+      {/* Security & Lock Settings Modal */}
+      <SecuritySettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
     </div>
   );
 };
+
