@@ -6,6 +6,8 @@ import { generateUUID } from '../lib/utils';
 import { 
   calculateJewelryTotal, 
   calculateClientTotalPaid, 
+  calculateClientTotalCredit,
+  calculateClientTotalDebit,
   calculateClientRemaining,
   calculateJewelryPureGold,
   calculateClientTotalGoldReceived,
@@ -33,7 +35,8 @@ export const clientsService = {
         ),
         client_payments (
           id,
-          amount
+          amount,
+          payment_type
         ),
         client_gold_received (
           id,
@@ -61,6 +64,8 @@ export const clientsService = {
           totalPureGold += calculateJewelryPureGold(mats);
         });
 
+        const totalCredit = calculateClientTotalCredit(payments);
+        const totalDebit = calculateClientTotalDebit(payments);
         const totalPaid = calculateClientTotalPaid(payments);
         const totalGoldReceived = calculateClientTotalGoldReceived(goldReceived);
 
@@ -73,6 +78,8 @@ export const clientsService = {
           updated_at: client.updated_at,
           jewelry_orders_count: orders.length,
           total_order_value: totalValue,
+          total_credit: totalCredit,
+          total_debit: totalDebit,
           total_paid: totalPaid,
           total_remaining: calculateClientRemaining(totalValue, totalPaid),
           total_pure_gold: totalPureGold,
@@ -104,6 +111,8 @@ export const clientsService = {
           totalValue += calculateJewelryTotal(materials);
           totalPureGold += calculateJewelryPureGold(materials);
         });
+        const totalCredit = calculateClientTotalCredit(payments);
+        const totalDebit = calculateClientTotalDebit(payments);
         const totalPaid = calculateClientTotalPaid(payments);
         const totalGoldReceived = calculateClientTotalGoldReceived(goldReceived);
 
@@ -111,6 +120,8 @@ export const clientsService = {
           ...client,
           jewelry_orders_count: orders.length,
           total_order_value: totalValue,
+          total_credit: totalCredit,
+          total_debit: totalDebit,
           total_paid: totalPaid,
           total_remaining: calculateClientRemaining(totalValue, totalPaid),
           total_pure_gold: totalPureGold,

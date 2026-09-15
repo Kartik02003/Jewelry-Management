@@ -22,20 +22,43 @@ export function calculateJewelryTotal(materials: Array<Pick<JewelryMaterial, 'qu
 }
 
 /**
- * Calculates total paid amount for a jewelry piece by summing all client payments
+ * Calculates total credit amount (received from client)
  */
-export function calculateClientTotalPaid(payments: Array<Pick<ClientPayment, 'amount'>>): number {
+export function calculateClientTotalCredit(payments: Array<Pick<ClientPayment, 'amount'> & { payment_type?: 'credit' | 'debit' }>): number {
   if (!payments || !Array.isArray(payments)) return 0;
-  const sum = payments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+  const sum = payments
+    .filter(p => p.payment_type !== 'debit')
+    .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
   return Math.round(sum * 100) / 100;
 }
 
 /**
- * Calculates the remaining balance for a jewelry order.
+ * Calculates total debit amount (paid to client / refund)
+ */
+export function calculateClientTotalDebit(payments: Array<Pick<ClientPayment, 'amount'> & { payment_type?: 'credit' | 'debit' }>): number {
+  if (!payments || !Array.isArray(payments)) return 0;
+  const sum = payments
+    .filter(p => p.payment_type === 'debit')
+    .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+  return Math.round(sum * 100) / 100;
+}
+
+/**
+ * Calculates net paid amount (Credit - Debit) for a client or jewelry piece
+ */
+export function calculateClientTotalPaid(payments: Array<Pick<ClientPayment, 'amount'> & { payment_type?: 'credit' | 'debit' }>): number {
+  if (!payments || !Array.isArray(payments)) return 0;
+  const credit = calculateClientTotalCredit(payments);
+  const debit = calculateClientTotalDebit(payments);
+  return Math.round((credit - debit) * 100) / 100;
+}
+
+/**
+ * Calculates the remaining balance for a jewelry order or client.
  * Ensures it doesn't return negative values.
  */
-export function calculateClientRemaining(totalCost: number, totalPaid: number): number {
-  const diff = (Number(totalCost) || 0) - (Number(totalPaid) || 0);
+export function calculateClientRemaining(totalCost: number, netPaid: number): number {
+  const diff = (Number(totalCost) || 0) - (Number(netPaid) || 0);
   return Math.max(0, Math.round(diff * 100) / 100);
 }
 

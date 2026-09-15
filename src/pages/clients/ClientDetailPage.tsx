@@ -16,7 +16,10 @@ import { formatINR, formatDate, formatQuantity } from '../../lib/calculations/fo
 import {
   calculateJewelryPureGold,
   calculateClientTotalGoldReceived,
-  calculateClientGoldRemaining
+  calculateClientGoldRemaining,
+  calculateClientTotalCredit,
+  calculateClientTotalDebit,
+  calculateClientTotalPaid
 } from '../../lib/calculations/jewelryCalculations';
 import { AddClientPaymentModal } from '../../components/payments/AddClientPaymentModal';
 import { AddClientGoldModal } from '../../components/payments/AddClientGoldModal';
@@ -32,7 +35,9 @@ import {
   CreditCard,
   Calendar,
   Scale,
-  Share2
+  Share2,
+  ArrowDownLeft,
+  ArrowUpRight
 } from 'lucide-react';
 
 export const ClientDetailPage: React.FC = () => {
@@ -49,6 +54,7 @@ export const ClientDetailPage: React.FC = () => {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [paymentModalType, setPaymentModalType] = useState<'credit' | 'debit'>('credit');
   const [deletePaymentId, setDeletePaymentId] = useState<string | null>(null);
 
   const [isGoldModalOpen, setIsGoldModalOpen] = useState(false);
@@ -115,6 +121,11 @@ export const ClientDetailPage: React.FC = () => {
     }
   };
 
+  const openPaymentModal = (type: 'credit' | 'debit') => {
+    setPaymentModalType(type);
+    setIsPaymentModalOpen(true);
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-2">
@@ -135,7 +146,9 @@ export const ClientDetailPage: React.FC = () => {
 
   // Financial calculations
   const totalOrderValue = jewelryOrders.reduce((acc, j) => acc + j.total_material_cost, 0);
-  const totalPaid = payments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+  const totalCredit = calculateClientTotalCredit(payments);
+  const totalDebit = calculateClientTotalDebit(payments);
+  const totalPaid = calculateClientTotalPaid(payments); // Net Paid: Credit - Debit
   const totalRemaining = Math.max(0, totalOrderValue - totalPaid);
 
   // Pure Gold calculations
@@ -198,32 +211,61 @@ export const ClientDetailPage: React.FC = () => {
           )}
         </Card>
 
-        {/* 1. Client Financial Summary Card */}
+        {/* 1. Client Financial Summary Card with Credit & Debit */}
         {(jewelryOrders.length > 0 || payments.length > 0) && (
           <Card className="p-4 bg-slate-900 text-white border-none shadow-card">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">
-              Payment Summary
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="text-left">
-                <span className="text-[10px] text-slate-400 uppercase font-semibold block">Total Payment</span>
-                <span className="text-base font-extrabold text-white">{formatINR(totalOrderValue)}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 uppercase font-semibold block">Payment Received</span>
-                <span className="text-base font-extrabold text-emerald-400">{formatINR(totalPaid)}</span>
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] text-slate-400 uppercase font-semibold block">Pending Payment</span>
-                <span className={`text-base font-extrabold ${totalRemaining > 0 ? 'text-amber-400' : 'text-slate-300'}`}>
-                  {formatINR(totalRemaining)}
+            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center justify-between">
+              <span>Payment Summary</span>
+              {totalDebit > 0 && (
+                <span className="text-[10px] text-slate-400 normal-case font-normal">
+                  Net Received: <strong className="text-emerald-400 font-bold">{formatINR(totalPaid)}</strong>
                 </span>
-              </div>
+              )}
             </div>
+
+            {totalDebit > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                <div className="text-left bg-slate-800/60 p-2.5 rounded-xl">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Total Orders</span>
+                  <span className="text-sm sm:text-base font-extrabold text-white">{formatINR(totalOrderValue)}</span>
+                </div>
+                <div className="text-left bg-emerald-950/40 border border-emerald-900/50 p-2.5 rounded-xl">
+                  <span className="text-[10px] text-emerald-400 uppercase font-semibold block">Received (Credit)</span>
+                  <span className="text-sm sm:text-base font-extrabold text-emerald-400">+{formatINR(totalCredit)}</span>
+                </div>
+                <div className="text-left bg-rose-950/40 border border-rose-900/50 p-2.5 rounded-xl">
+                  <span className="text-[10px] text-rose-400 uppercase font-semibold block">Paid to Client (Debit)</span>
+                  <span className="text-sm sm:text-base font-extrabold text-rose-400">-{formatINR(totalDebit)}</span>
+                </div>
+                <div className="text-left bg-slate-800/60 p-2.5 rounded-xl">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Pending Balance</span>
+                  <span className={`text-sm sm:text-base font-extrabold ${totalRemaining > 0 ? 'text-amber-400' : 'text-slate-300'}`}>
+                    {formatINR(totalRemaining)}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="text-left">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Total Payment</span>
+                  <span className="text-base font-extrabold text-white">{formatINR(totalOrderValue)}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Payment Received</span>
+                  <span className="text-base font-extrabold text-emerald-400">{formatINR(totalCredit)}</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Pending Payment</span>
+                  <span className={`text-base font-extrabold ${totalRemaining > 0 ? 'text-amber-400' : 'text-slate-300'}`}>
+                    {formatINR(totalRemaining)}
+                  </span>
+                </div>
+              </div>
+            )}
           </Card>
         )}
 
-        {/* 2. Client Pure Gold Summary Card (just below the payments card) */}
+        {/* 2. Client Pure Gold Summary Card */}
         {(totalPureGold > 0 || goldRecords.length > 0) && (
           <Card className="p-4 bg-gradient-to-br from-amber-950 via-amber-900 to-amber-950 text-amber-50 border-none shadow-card">
             <div className="text-[11px] font-bold uppercase tracking-wider text-amber-300/80 mb-3 flex items-center gap-1.5">
@@ -281,7 +323,7 @@ export const ClientDetailPage: React.FC = () => {
           )}
         </div>
 
-        {/* Client Payments Section */}
+        {/* Client Payments & Debits Section */}
         <div className="space-y-3 pt-2">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
@@ -290,8 +332,9 @@ export const ClientDetailPage: React.FC = () => {
             </h2>
             <Button
               size="sm"
-              onClick={() => setIsPaymentModalOpen(true)}
-              icon={<Plus className="w-4 h-4" />}
+              onClick={() => openPaymentModal('credit')}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2.5 py-1"
+              icon={<Plus className="w-3.5 h-3.5" />}
             >
               Add Payment
             </Button>
@@ -302,46 +345,83 @@ export const ClientDetailPage: React.FC = () => {
               <p className="text-xs text-slate-500 mb-3">No payments recorded yet for this client.</p>
               <Button
                 size="sm"
-                onClick={() => setIsPaymentModalOpen(true)}
+                onClick={() => openPaymentModal('credit')}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
                 icon={<Plus className="w-4 h-4" />}
               >
-                Record First Payment
+                Record Payment
               </Button>
             </Card>
           ) : (
             <Card className="p-0 overflow-hidden divide-y divide-slate-100">
-              {payments.map((payment) => (
-                <div key={payment.id} className="p-3.5 flex items-center justify-between text-xs">
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-1.5 font-bold text-slate-900 text-sm">
-                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                      <span>{formatDate(payment.payment_date)}</span>
+              {payments.map((payment) => {
+                const isDebit = payment.payment_type === 'debit';
+                return (
+                  <div key={payment.id} className="p-3.5 flex items-center justify-between text-xs">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            isDebit
+                              ? 'bg-rose-100 text-rose-800'
+                              : 'bg-emerald-100 text-emerald-800'
+                          }`}
+                        >
+                          {isDebit ? (
+                            <>
+                              <ArrowUpRight className="w-3 h-3 text-rose-600" />
+                              <span>Debit (Paid to Client)</span>
+                            </>
+                          ) : (
+                            <>
+                              <ArrowDownLeft className="w-3 h-3 text-emerald-600" />
+                              <span>Credit (Received)</span>
+                            </>
+                          )}
+                        </span>
+                        <div className="flex items-center gap-1 text-slate-500 text-[11px] font-medium">
+                          <Calendar className="w-3 h-3 text-slate-400" />
+                          <span>{formatDate(payment.payment_date)}</span>
+                        </div>
+                      </div>
+
+                      {payment.notes && (
+                        <p className="text-slate-600 italic text-[11px] pl-0.5">{payment.notes}</p>
+                      )}
                     </div>
-                    {payment.notes && (
-                      <p className="text-slate-500 italic text-[11px]">{payment.notes}</p>
-                    )}
-                  </div>
 
-                  <div className="flex items-center gap-3">
-                    <span className="font-extrabold text-emerald-600 text-base">
-                      {formatINR(payment.amount)}
-                    </span>
-                    <button
-                      onClick={() => setDeletePaymentId(payment.id)}
-                      className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
-                      title="Delete payment"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`font-extrabold text-base ${
+                          isDebit ? 'text-rose-600' : 'text-emerald-600'
+                        }`}
+                      >
+                        {isDebit ? `-${formatINR(payment.amount)}` : `+${formatINR(payment.amount)}`}
+                      </span>
+                      <button
+                        onClick={() => setDeletePaymentId(payment.id)}
+                        className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
+                        title="Delete record"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
+                );
+              })}
+
+              {/* Payments Summary Footer */}
+              <div className="p-3.5 bg-slate-50 flex flex-wrap items-center justify-between gap-2 text-xs font-bold border-t border-slate-200/80">
+                <div className="flex items-center gap-3 text-[11px]">
+                  <span className="text-emerald-700">Credit: {formatINR(totalCredit)}</span>
+                  {totalDebit > 0 && (
+                    <span className="text-rose-700">Debit: {formatINR(totalDebit)}</span>
+                  )}
                 </div>
-              ))}
-
-              <div className="p-3.5 bg-emerald-50/60 flex items-center justify-between text-xs font-bold">
-                <span className="text-emerald-900">Total Paid</span>
-                <span className="text-base font-extrabold text-emerald-700">
-                  {formatINR(totalPaid)}
-                </span>
+                <div className="flex items-center gap-1.5 text-xs font-extrabold text-slate-900">
+                  <span>Net Paid:</span>
+                  <span className="text-emerald-700 text-sm">{formatINR(totalPaid)}</span>
+                </div>
               </div>
             </Card>
           )}
@@ -414,13 +494,14 @@ export const ClientDetailPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Add Client Payment Modal */}
+      {/* Add Client Payment / Debit Modal */}
       <AddClientPaymentModal
         isOpen={isPaymentModalOpen}
         onClose={() => setIsPaymentModalOpen(false)}
         clientId={client.id}
         clientName={client.name}
         remainingAmount={totalRemaining}
+        initialType={paymentModalType}
         onPaymentAdded={loadData}
       />
 

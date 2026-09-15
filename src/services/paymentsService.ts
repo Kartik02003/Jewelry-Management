@@ -43,6 +43,7 @@ export const paymentsService = {
     amount: number;
     payment_date: string;
     notes?: string;
+    payment_type?: 'credit' | 'debit';
   }): Promise<ClientPayment> {
     const amount = Number(data.amount);
     if (!amount || amount <= 0) throw new Error('Payment amount must be greater than 0');
@@ -50,6 +51,7 @@ export const paymentsService = {
 
     const now = new Date().toISOString();
     const paymentId = generateUUID();
+    const paymentType = data.payment_type || 'credit';
 
     if (isSupabaseConfigured() && supabase) {
       const { data: payment, error } = await supabase
@@ -61,6 +63,7 @@ export const paymentsService = {
           amount,
           payment_date: data.payment_date,
           notes: data.notes?.trim() || null,
+          payment_type: paymentType,
         }])
         .select()
         .single();
@@ -75,6 +78,7 @@ export const paymentsService = {
         amount,
         payment_date: data.payment_date,
         notes: data.notes?.trim() || null,
+        payment_type: paymentType,
         created_at: now,
         updated_at: now,
       };
@@ -84,7 +88,7 @@ export const paymentsService = {
     }
   },
 
-  async updateClientPayment(id: string, data: { amount: number; payment_date: string; notes?: string }): Promise<void> {
+  async updateClientPayment(id: string, data: { amount: number; payment_date: string; notes?: string; payment_type?: 'credit' | 'debit' }): Promise<void> {
     const amount = Number(data.amount);
     if (!amount || amount <= 0) throw new Error('Payment amount must be greater than 0');
     if (!data.payment_date) throw new Error('Payment date is required');
@@ -92,14 +96,19 @@ export const paymentsService = {
     const now = new Date().toISOString();
 
     if (isSupabaseConfigured() && supabase) {
+      const updateData: any = {
+        amount,
+        payment_date: data.payment_date,
+        notes: data.notes?.trim() || null,
+        updated_at: now,
+      };
+      if (data.payment_type) {
+        updateData.payment_type = data.payment_type;
+      }
+
       const { error } = await supabase
         .from('client_payments')
-        .update({
-          amount,
-          payment_date: data.payment_date,
-          notes: data.notes?.trim() || null,
-          updated_at: now,
-        })
+        .update(updateData)
         .eq('id', id);
       if (error) throw error;
     } else {
@@ -112,6 +121,7 @@ export const paymentsService = {
         amount,
         payment_date: data.payment_date,
         notes: data.notes?.trim() || null,
+        payment_type: data.payment_type || store.client_payments[idx].payment_type || 'credit',
         updated_at: now,
       };
       saveLocalStore(store);

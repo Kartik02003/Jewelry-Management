@@ -29,6 +29,8 @@ export interface ClientWithDetails extends Client {
   payments?: ClientPayment[];
   gold_received?: ClientGoldReceived[];
   total_order_value?: number;
+  total_credit?: number;
+  total_debit?: number;
   total_paid?: number;
   total_remaining?: number;
   total_pure_gold?: number;

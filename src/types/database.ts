@@ -53,6 +53,7 @@ export interface ClientPayment {
   amount: number;
   payment_date: string;
   notes?: string | null;
+  payment_type?: 'credit' | 'debit';
   created_at: string;
   updated_at: string;
 }

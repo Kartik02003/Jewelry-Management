@@ -34,7 +34,13 @@ export function generateClientLedgerText(data: ClientLedgerData): string {
     totalPureGoldRequired += pureGold;
   });
 
-  const totalPaid = payments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+  const totalCredit = payments
+    .filter(p => p.payment_type !== 'debit')
+    .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+  const totalDebit = payments
+    .filter(p => p.payment_type === 'debit')
+    .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+  const totalPaid = totalCredit - totalDebit;
   const totalPendingBalance = Math.max(0, totalOrderValue - totalPaid);
 
   const totalGoldReceived = goldRecords.reduce((acc, g) => acc + (Number(g.quantity) || 0), 0);
@@ -127,18 +133,25 @@ export function generateClientLedgerText(data: ClientLedgerData): string {
   lines.push('💰 FINANCIAL & PAYMENT LEDGER:');
   lines.push('----------------------------------------');
   lines.push(`• Total Orders Value: ${formatINR(totalOrderValue)}`);
-  lines.push(`• Payments Received (${payments.length} entries):`);
+  lines.push(`• Payments & Transactions (${payments.length} entries):`);
 
   if (payments.length === 0) {
     lines.push('  (No payments recorded yet)');
   } else {
     payments.forEach((p) => {
+      const isDebit = p.payment_type === 'debit';
       const noteStr = p.notes ? ` (${p.notes})` : '';
-      lines.push(`  - ${formatDate(p.payment_date)}: ${formatINR(p.amount)}${noteStr}`);
+      const typeStr = isDebit ? '[DEBIT - Paid to Client]' : '[CREDIT - Received]';
+      const signStr = isDebit ? '-' : '+';
+      lines.push(`  - ${formatDate(p.payment_date)}: ${signStr}${formatINR(p.amount)} ${typeStr}${noteStr}`);
     });
   }
 
-  lines.push(`• Total Amount Paid: ${formatINR(totalPaid)}`);
+  lines.push(`• Total Received (Credit): ${formatINR(totalCredit)}`);
+  if (totalDebit > 0) {
+    lines.push(`• Total Paid to Client (Debit): ${formatINR(totalDebit)}`);
+  }
+  lines.push(`• Net Amount Paid: ${formatINR(totalPaid)}`);
   lines.push(`• PENDING BALANCE DUE: ${formatINR(totalPendingBalance)}`);
   lines.push('========================================');
 
@@ -164,7 +177,13 @@ export function exportClientLedgerToExcel(data: ClientLedgerData): void {
     totalPureGoldRequired += pureGold;
   });
 
-  const totalPaid = payments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+  const totalCredit = payments
+    .filter(p => p.payment_type !== 'debit')
+    .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+  const totalDebit = payments
+    .filter(p => p.payment_type === 'debit')
+    .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+  const totalPaid = totalCredit - totalDebit;
   const totalPendingBalance = Math.max(0, totalOrderValue - totalPaid);
 
   const totalGoldReceived = goldRecords.reduce((acc, g) => acc + (Number(g.quantity) || 0), 0);
@@ -186,7 +205,9 @@ export function exportClientLedgerToExcel(data: ClientLedgerData): void {
   // Overview Summary Table
   sheetRows.push(['OVERVIEW SUMMARY', '']);
   sheetRows.push(['Total Order Value (₹)', totalOrderValue]);
-  sheetRows.push(['Total Amount Paid (₹)', totalPaid]);
+  sheetRows.push(['Total Received - Credit (₹)', totalCredit]);
+  sheetRows.push(['Total Paid to Client - Debit (₹)', totalDebit]);
+  sheetRows.push(['Net Amount Paid (₹)', totalPaid]);
   sheetRows.push(['Pending Balance Due (₹)', totalPendingBalance]);
   sheetRows.push(['Total Pure Gold Required (g)', totalPureGoldRequired]);
   sheetRows.push(['Total Pure Gold Received (g)', totalGoldReceived]);
@@ -284,25 +305,29 @@ export function exportClientLedgerToExcel(data: ClientLedgerData): void {
   sheetRows.push(['', 'Pure Gold Balance Due (g):', goldBalanceRemaining]);
   sheetRows.push([]);
 
-  // Section 3: Payments Received Ledger
-  sheetRows.push(['PAYMENTS RECEIVED LEDGER']);
-  sheetRows.push(['S.No', 'Payment Date', 'Amount Paid (₹)', 'Payment Mode / Notes']);
+  // Section 3: Payments & Debits Ledger
+  sheetRows.push(['PAYMENTS & TRANSACTIONS LEDGER']);
+  sheetRows.push(['S.No', 'Transaction Date', 'Type', 'Amount (₹)', 'Payment Mode / Notes']);
 
   if (payments.length === 0) {
     sheetRows.push(['No payments recorded']);
   } else {
     payments.forEach((p, idx) => {
+      const isDebit = p.payment_type === 'debit';
       sheetRows.push([
         idx + 1,
         formatDate(p.payment_date),
-        Number(p.amount) || 0,
+        isDebit ? 'Debit (Paid to Client)' : 'Credit (Received)',
+        isDebit ? -Number(p.amount) : Number(p.amount) || 0,
         p.notes || ''
       ]);
     });
   }
 
-  sheetRows.push(['', 'Total Amount Paid (₹):', totalPaid]);
-  sheetRows.push(['', 'Pending Balance Due (₹):', totalPendingBalance]);
+  sheetRows.push(['', '', 'Total Received (Credit) (₹):', totalCredit, '']);
+  sheetRows.push(['', '', 'Total Paid to Client (Debit) (₹):', totalDebit, '']);
+  sheetRows.push(['', '', 'Net Amount Paid (₹):', totalPaid, '']);
+  sheetRows.push(['', '', 'Pending Balance Due (₹):', totalPendingBalance, '']);
 
   // Convert array of arrays to worksheet
   const ws = XLSX.utils.aoa_to_sheet(sheetRows);
