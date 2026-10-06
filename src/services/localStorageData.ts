@@ -26,7 +26,19 @@ interface DatabaseStore {
   craftsman_payments: CraftsmanPayment[];
 }
 
-const STORAGE_KEY = 'jewelry_craftsman_db_v2';
+const BASE_STORAGE_KEY = 'jewelry_craftsman_db_v2';
+
+const getActiveStorageKey = (): string => {
+  try {
+    const localAuth = localStorage.getItem('jewelry_local_master_auth');
+    if (localAuth) {
+      return `jewelry_craftsman_db_${localAuth}`;
+    }
+  } catch {
+    // fallback
+  }
+  return BASE_STORAGE_KEY;
+};
 
 const initialData: DatabaseStore = {
   clients: [],
@@ -44,9 +56,16 @@ const initialData: DatabaseStore = {
 
 export const getLocalStore = (): DatabaseStore => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const key = getActiveStorageKey();
+    let raw = localStorage.getItem(key);
+    
+    // Fallback to legacy single-user key if new user key is not found yet
+    if (!raw && key !== BASE_STORAGE_KEY) {
+      raw = localStorage.getItem(BASE_STORAGE_KEY);
+    }
+
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(initialData));
+      localStorage.setItem(key, JSON.stringify(initialData));
       return initialData;
     }
     const parsed = JSON.parse(raw);
@@ -61,7 +80,8 @@ export const getLocalStore = (): DatabaseStore => {
 
 export const saveLocalStore = (data: DatabaseStore) => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    const key = getActiveStorageKey();
+    localStorage.setItem(key, JSON.stringify(data));
   } catch (err) {
     console.error('Failed to save to local storage', err);
   }

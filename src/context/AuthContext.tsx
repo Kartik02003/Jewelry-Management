@@ -5,6 +5,7 @@ import {
   savePin, 
   isPinSet, 
   clearPin, 
+  setCachedPinCredentials,
   getAutoLockMinutes, 
   setAutoLockMinutes as persistAutoLockMinutes 
 } from '../lib/auth/pinSecurity';
@@ -43,17 +44,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isLocked, setIsLocked] = useState<boolean>(true);
   const [hasPin, setHasPin] = useState<boolean>(false);
-  const [autoLockMinutes, setAutoLockMinutesState] = useState<number>(getAutoLockMinutes());
+  const [autoLockMinutes, setAutoLockMinutesState] = useState<number>(5);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const idleTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Helper to get identifier for the active user
+  const getUserKey = (u?: AuthUser | null): string | undefined => {
+    return u?.id || u?.email;
+  };
+
   // Lock the screen
   const lockNow = useCallback(() => {
-    if (isPinSet()) {
+    const userKey = getUserKey(user);
+    if (isPinSet(userKey)) {
       setIsLocked(true);
     }
-  }, []);
+  }, [user]);
 
   // Reset inactivity timer
   const resetIdleTimer = useCallback(() => {
@@ -70,34 +77,76 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [autoLockMinutes, isAuthenticated, isLocked, hasPin]);
 
+  // Sync PIN configuration from Supabase user_security table if not yet cached locally
+  const checkAndSyncUserPin = async (userObj: AuthUser): Promise<boolean> => {
+    const userKey = getUserKey(userObj);
+    if (!userKey) return false;
+
+    // First check local storage
+    if (isPinSet(userKey)) {
+      setAutoLockMinutesState(getAutoLockMinutes(userKey));
+      return true;
+    }
+
+    // If cloud is connected, check user_security table
+    if (isCloud && supabase && userObj.id) {
+      try {
+        const { data: secData, error } = await supabase
+          .from('user_security')
+          .select('pin_hash, pin_salt, auto_lock_minutes')
+          .eq('user_id', userObj.id)
+          .maybeSingle();
+
+        if (!error && secData?.pin_hash && secData?.pin_salt) {
+          setCachedPinCredentials(userKey, secData.pin_hash, secData.pin_salt);
+          if (secData.auto_lock_minutes !== undefined && secData.auto_lock_minutes !== null) {
+            persistAutoLockMinutes(secData.auto_lock_minutes, userKey);
+            setAutoLockMinutesState(secData.auto_lock_minutes);
+          }
+          return true;
+        }
+      } catch (err) {
+        console.warn('Could not sync user_security from cloud:', err);
+      }
+    }
+
+    return false;
+  };
+
   // Initial Auth Check
   useEffect(() => {
     const initAuth = async () => {
       try {
         setIsLoading(true);
-        const pinConfigured = isPinSet();
-        setHasPin(pinConfigured);
 
         if (isCloud && supabase) {
-          const { data: { session }, error } = await supabase.auth.getSession();
+          const { data: { session } } = await supabase.auth.getSession();
           if (session?.user) {
-            setUser({ email: session.user.email || '', id: session.user.id });
+            const authUser: AuthUser = { email: session.user.email || '', id: session.user.id };
+            setUser(authUser);
             setIsAuthenticated(true);
-            setIsLocked(pinConfigured); // Lock behind PIN if PIN is set
+            const pinConfigured = await checkAndSyncUserPin(authUser);
+            setHasPin(pinConfigured);
+            setIsLocked(pinConfigured);
           } else {
             setIsAuthenticated(false);
             setUser(null);
+            setHasPin(false);
           }
         } else {
           // Local/offline mode check
           const localAuth = localStorage.getItem(LOCAL_MASTER_AUTH_KEY);
           if (localAuth) {
-            setUser({ email: localAuth });
+            const authUser: AuthUser = { email: localAuth };
+            setUser(authUser);
             setIsAuthenticated(true);
+            const pinConfigured = isPinSet(getUserKey(authUser));
+            setHasPin(pinConfigured);
             setIsLocked(pinConfigured);
           } else {
             setIsAuthenticated(false);
             setUser(null);
+            setHasPin(false);
           }
         }
       } catch (err) {
@@ -111,13 +160,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Supabase auth state listener
     if (isCloud && supabase) {
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
         if (session?.user) {
-          setUser({ email: session.user.email || '', id: session.user.id });
+          const authUser: AuthUser = { email: session.user.email || '', id: session.user.id };
+          setUser(authUser);
           setIsAuthenticated(true);
+          const pinConfigured = await checkAndSyncUserPin(authUser);
+          setHasPin(pinConfigured);
         } else {
           setUser(null);
           setIsAuthenticated(false);
+          setHasPin(false);
         }
       });
       return () => {
@@ -153,7 +206,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [isAuthenticated, isLocked, hasPin, autoLockMinutes, resetIdleTimer]);
 
-  // 1. Sign In with Email and Password (One-Time Master Setup per device)
+  // 1. Sign In with Email and Password
   const signInWithPassword = async (email: string, pass: string) => {
     const trimmedEmail = email.trim().toLowerCase();
     if (!trimmedEmail) throw new Error('Email is required');
@@ -165,9 +218,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         password: pass,
       });
       if (error) throw error;
-      setUser({ email: data.user.email || trimmedEmail, id: data.user.id });
+      const authUser: AuthUser = { email: data.user.email || trimmedEmail, id: data.user.id };
+      setUser(authUser);
       setIsAuthenticated(true);
-      const pinConfigured = isPinSet();
+      const pinConfigured = await checkAndSyncUserPin(authUser);
       setHasPin(pinConfigured);
       setIsLocked(pinConfigured);
     } else {
@@ -180,27 +234,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem(LOCAL_MASTER_PASS_KEY, pass);
       }
       localStorage.setItem(LOCAL_MASTER_AUTH_KEY, trimmedEmail);
-      setUser({ email: trimmedEmail });
+      const authUser: AuthUser = { email: trimmedEmail };
+      setUser(authUser);
       setIsAuthenticated(true);
-      const pinConfigured = isPinSet();
+      const pinConfigured = isPinSet(getUserKey(authUser));
       setHasPin(pinConfigured);
       setIsLocked(pinConfigured);
     }
   };
 
-  // 2. Setup 4-Digit PIN
+  // 2. Setup 4-Digit PIN (Per User)
   const setupPin = async (pin: string) => {
     if (!/^\d{4}$/.test(pin)) {
       throw new Error('PIN must be exactly 4 digits');
     }
-    await savePin(pin);
+    const userKey = getUserKey(user);
+    if (!userKey) throw new Error('No active user found');
+
+    const { hash, salt } = await savePin(pin, userKey);
+
+    // Sync to Supabase user_security table if connected
+    if (isCloud && supabase && user?.id) {
+      try {
+        await supabase.from('user_security').upsert({
+          user_id: user.id,
+          pin_hash: hash,
+          pin_salt: salt,
+          auto_lock_minutes: autoLockMinutes,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.warn('Could not persist PIN to cloud user_security:', err);
+      }
+    }
+
     setHasPin(true);
     setIsLocked(false);
   };
 
   // 3. Unlock with 4-Digit PIN
   const unlockWithPin = async (pin: string): Promise<boolean> => {
-    const valid = await verifyPin(pin);
+    const userKey = getUserKey(user);
+    const valid = await verifyPin(pin, userKey);
     if (valid) {
       setIsLocked(false);
       resetIdleTimer();
@@ -240,14 +315,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!/^\d{4}$/.test(newPin)) {
       throw new Error('New PIN must be exactly 4 digits');
     }
-    await savePin(newPin);
+    const userKey = getUserKey(user);
+    if (!userKey) throw new Error('No active user found');
+
+    const { hash, salt } = await savePin(newPin, userKey);
+
+    if (isCloud && supabase && user?.id) {
+      try {
+        await supabase.from('user_security').upsert({
+          user_id: user.id,
+          pin_hash: hash,
+          pin_salt: salt,
+          auto_lock_minutes: autoLockMinutes,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.warn('Could not persist updated PIN to cloud user_security:', err);
+      }
+    }
+
     setHasPin(true);
   };
 
   // 6. Update Auto-Lock timeout
-  const updateAutoLockTimeout = (minutes: number) => {
-    persistAutoLockMinutes(minutes);
+  const updateAutoLockTimeout = async (minutes: number) => {
+    const userKey = getUserKey(user);
+    persistAutoLockMinutes(minutes, userKey);
     setAutoLockMinutesState(minutes);
+
+    if (isCloud && supabase && user?.id) {
+      try {
+        await supabase.from('user_security').update({
+          auto_lock_minutes: minutes,
+          updated_at: new Date().toISOString(),
+        }).eq('user_id', user.id);
+      } catch (err) {
+        console.warn('Could not update auto_lock_minutes in cloud:', err);
+      }
+    }
   };
 
   // 7. Sign Out (Full device logout)
@@ -259,7 +364,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       console.error('Error signing out:', err);
     } finally {
-      clearPin();
+      const userKey = getUserKey(user);
+      clearPin(userKey);
       localStorage.removeItem(LOCAL_MASTER_AUTH_KEY);
       setUser(null);
       setIsAuthenticated(false);

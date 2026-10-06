@@ -15,6 +15,13 @@ export interface ClientLedgerData {
   goldRecords: ClientGoldReceived[];
 }
 
+export {
+  generateClientLedgerPDF,
+  downloadClientLedgerPDF,
+  shareOrDownloadClientLedgerPDF,
+} from './clientLedgerPdfExport';
+
+
 /**
  * Generates clean, structured, formatted text representing the entire client ledger.
  */
