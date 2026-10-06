@@ -42,7 +42,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isCloud = isSupabaseConfigured() && Boolean(supabase);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [isLocked, setIsLocked] = useState<boolean>(true);
+  const [isLocked, setIsLocked] = useState<boolean>(false);
   const [hasPin, setHasPin] = useState<boolean>(false);
   const [autoLockMinutes, setAutoLockMinutesState] = useState<number>(5);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -82,13 +82,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const userKey = getUserKey(userObj);
     if (!userKey) return false;
 
-    // First check local storage
+    // 1. Check local storage for this specific user
     if (isPinSet(userKey)) {
       setAutoLockMinutesState(getAutoLockMinutes(userKey));
       return true;
     }
 
-    // If cloud is connected, check user_security table
+    // 2. If cloud is connected, check user_security table for this user_id
     if (isCloud && supabase && userObj.id) {
       try {
         const { data: secData, error } = await supabase
@@ -110,6 +110,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
+    // 3. New user without a PIN!
     return false;
   };
 
@@ -119,6 +120,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         setIsLoading(true);
 
+        // Clean any old legacy un-scoped PIN keys to avoid leaking between users
+        localStorage.removeItem('jewelry_app_pin_hash');
+        localStorage.removeItem('jewelry_app_pin_salt');
+
         if (isCloud && supabase) {
           const { data: { session } } = await supabase.auth.getSession();
           if (session?.user) {
@@ -127,11 +132,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsAuthenticated(true);
             const pinConfigured = await checkAndSyncUserPin(authUser);
             setHasPin(pinConfigured);
-            setIsLocked(pinConfigured);
+            setIsLocked(pinConfigured); // Lock if PIN exists, otherwise leave unlocked for PIN setup!
           } else {
             setIsAuthenticated(false);
             setUser(null);
             setHasPin(false);
+            setIsLocked(false);
           }
         } else {
           // Local/offline mode check
@@ -147,6 +153,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsAuthenticated(false);
             setUser(null);
             setHasPin(false);
+            setIsLocked(false);
           }
         }
       } catch (err) {
@@ -160,17 +167,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Supabase auth state listener
     if (isCloud && supabase) {
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
         if (session?.user) {
           const authUser: AuthUser = { email: session.user.email || '', id: session.user.id };
           setUser(authUser);
           setIsAuthenticated(true);
           const pinConfigured = await checkAndSyncUserPin(authUser);
           setHasPin(pinConfigured);
+          setIsLocked(pinConfigured);
         } else {
           setUser(null);
           setIsAuthenticated(false);
           setHasPin(false);
+          setIsLocked(false);
         }
       });
       return () => {
@@ -212,6 +221,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!trimmedEmail) throw new Error('Email is required');
     if (!pass) throw new Error('Password is required');
 
+    // Clean legacy global keys
+    localStorage.removeItem('jewelry_app_pin_hash');
+    localStorage.removeItem('jewelry_app_pin_salt');
+
     if (isCloud && supabase) {
       const { data, error } = await supabase.auth.signInWithPassword({
         email: trimmedEmail,
@@ -223,7 +236,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsAuthenticated(true);
       const pinConfigured = await checkAndSyncUserPin(authUser);
       setHasPin(pinConfigured);
-      setIsLocked(pinConfigured);
+      setIsLocked(pinConfigured); // false if new user -> immediately shows PIN setup!
     } else {
       // Local Mode
       const storedPass = localStorage.getItem(LOCAL_MASTER_PASS_KEY);
@@ -243,7 +256,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // 2. Setup 4-Digit PIN (Per User)
+  // 2. Setup 4-Digit PIN (First time setup for active user)
   const setupPin = async (pin: string) => {
     if (!/^\d{4}$/.test(pin)) {
       throw new Error('PIN must be exactly 4 digits');
@@ -269,7 +282,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     setHasPin(true);
-    setIsLocked(false);
+    setIsLocked(false); // Unlocks into dashboard!
   };
 
   // 3. Unlock with 4-Digit PIN
@@ -364,9 +377,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       console.error('Error signing out:', err);
     } finally {
-      const userKey = getUserKey(user);
-      clearPin(userKey);
       localStorage.removeItem(LOCAL_MASTER_AUTH_KEY);
+      localStorage.removeItem('jewelry_app_pin_hash');
+      localStorage.removeItem('jewelry_app_pin_salt');
       setUser(null);
       setIsAuthenticated(false);
       setIsLocked(false);

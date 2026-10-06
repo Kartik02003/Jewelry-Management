@@ -1,24 +1,24 @@
 /**
  * PIN Security utilities using native Web Crypto API (SHA-256)
- * Supports user-scoped PIN storage so each user has their own independent 4-digit PIN.
+ * Strictly user-scoped PIN storage so each user has their own independent 4-digit PIN.
  */
 
-function getPinStorageKey(userId?: string): string {
-  return userId ? `jewelry_app_pin_hash_${userId}` : 'jewelry_app_pin_hash';
+function getPinStorageKey(userId: string): string {
+  return `jewelry_app_pin_hash_${userId}`;
 }
 
-function getPinSaltKey(userId?: string): string {
-  return userId ? `jewelry_app_pin_salt_${userId}` : 'jewelry_app_pin_salt';
+function getPinSaltKey(userId: string): string {
+  return `jewelry_app_pin_salt_${userId}`;
 }
 
-function getAutoLockStorageKey(userId?: string): string {
-  return userId ? `jewelry_app_autolock_minutes_${userId}` : 'jewelry_app_autolock_minutes';
+function getAutoLockStorageKey(userId: string): string {
+  return `jewelry_app_autolock_minutes_${userId}`;
 }
 
 /**
  * Generates a random cryptographic salt if none exists for this user
  */
-export function getOrCreatePinSalt(userId?: string): string {
+export function getOrCreatePinSalt(userId: string): string {
   const saltKey = getPinSaltKey(userId);
   let salt = localStorage.getItem(saltKey);
   if (!salt) {
@@ -33,10 +33,9 @@ export function getOrCreatePinSalt(userId?: string): string {
 /**
  * Hashes a 4-digit PIN with salt using SHA-256
  */
-export async function hashPin(pin: string, salt?: string): Promise<string> {
-  const effectiveSalt = salt || getOrCreatePinSalt();
+export async function hashPin(pin: string, salt: string): Promise<string> {
   const encoder = new TextEncoder();
-  const data = encoder.encode(`${pin}:${effectiveSalt}:jewelry_security_v1`);
+  const data = encoder.encode(`${pin}:${salt}:jewelry_security_v1`);
   const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -45,41 +44,35 @@ export async function hashPin(pin: string, salt?: string): Promise<string> {
 /**
  * Saves a new PIN hash to persistent storage for a specific user
  */
-export async function savePin(pin: string, userId?: string): Promise<{ hash: string; salt: string }> {
+export async function savePin(pin: string, userId: string): Promise<{ hash: string; salt: string }> {
   const salt = getOrCreatePinSalt(userId);
   const hash = await hashPin(pin, salt);
   localStorage.setItem(getPinStorageKey(userId), hash);
+  // Clean up any legacy un-scoped key
+  localStorage.removeItem('jewelry_app_pin_hash');
+  localStorage.removeItem('jewelry_app_pin_salt');
   return { hash, salt };
 }
 
 /**
- * Verifies if entered PIN matches the stored hash for this user
+ * Verifies if entered PIN matches the stored hash for this specific user
  */
 export async function verifyPin(pin: string, userId?: string): Promise<boolean> {
-  let storedHash = localStorage.getItem(getPinStorageKey(userId));
-  let salt = localStorage.getItem(getPinSaltKey(userId));
+  if (!userId) return false;
+  const storedHash = localStorage.getItem(getPinStorageKey(userId));
+  const salt = localStorage.getItem(getPinSaltKey(userId));
 
-  // Backward compatibility check for older single-user key
-  if (!storedHash && userId) {
-    storedHash = localStorage.getItem('jewelry_app_pin_hash');
-    salt = localStorage.getItem('jewelry_app_pin_salt');
-  }
-
-  if (!storedHash) return false;
-  const effectiveSalt = salt || getOrCreatePinSalt(userId);
-  const computedHash = await hashPin(pin, effectiveSalt);
+  if (!storedHash || !salt) return false;
+  const computedHash = await hashPin(pin, salt);
   return computedHash === storedHash;
 }
 
 /**
- * Checks if a PIN has been set for this user
+ * Checks if a PIN has been set for this specific user
  */
 export function isPinSet(userId?: string): boolean {
-  if (userId && localStorage.getItem(getPinStorageKey(userId))) {
-    return true;
-  }
-  // Check default/legacy key
-  return Boolean(localStorage.getItem('jewelry_app_pin_hash'));
+  if (!userId) return false;
+  return Boolean(localStorage.getItem(getPinStorageKey(userId)));
 }
 
 /**
@@ -88,6 +81,9 @@ export function isPinSet(userId?: string): boolean {
 export function setCachedPinCredentials(userId: string, hash: string, salt: string): void {
   localStorage.setItem(getPinStorageKey(userId), hash);
   localStorage.setItem(getPinSaltKey(userId), salt);
+  // Clean up legacy keys
+  localStorage.removeItem('jewelry_app_pin_hash');
+  localStorage.removeItem('jewelry_app_pin_salt');
 }
 
 /**
@@ -97,25 +93,18 @@ export function clearPin(userId?: string): void {
   if (userId) {
     localStorage.removeItem(getPinStorageKey(userId));
     localStorage.removeItem(getPinSaltKey(userId));
-  } else {
-    localStorage.removeItem('jewelry_app_pin_hash');
-    localStorage.removeItem('jewelry_app_pin_salt');
   }
+  localStorage.removeItem('jewelry_app_pin_hash');
+  localStorage.removeItem('jewelry_app_pin_salt');
 }
 
 /**
  * Gets configured auto-lock timeout in minutes (default 5 minutes)
  */
 export function getAutoLockMinutes(userId?: string): number {
+  if (!userId) return 5;
   const val = localStorage.getItem(getAutoLockStorageKey(userId));
-  if (val === null) {
-    const legacyVal = localStorage.getItem('jewelry_app_autolock_minutes');
-    if (legacyVal !== null) {
-      const num = Number(legacyVal);
-      return isNaN(num) ? 5 : num;
-    }
-    return 5;
-  }
+  if (val === null) return 5;
   const num = Number(val);
   return isNaN(num) ? 5 : num;
 }
@@ -124,5 +113,7 @@ export function getAutoLockMinutes(userId?: string): number {
  * Saves auto-lock timeout in minutes (0 means never)
  */
 export function setAutoLockMinutes(minutes: number, userId?: string): void {
-  localStorage.setItem(getAutoLockStorageKey(userId), minutes.toString());
+  if (userId) {
+    localStorage.setItem(getAutoLockStorageKey(userId), minutes.toString());
+  }
 }
